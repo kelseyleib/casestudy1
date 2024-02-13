@@ -1,0 +1,204 @@
+---
+title: 'Case Study: Bike Rental Company'
+output:
+  pdf_document: default
+  html_document: default
+date: "2024-01-30"
+---
+
+
+This is data about a bike rental company for the year 2020. The company has members, who pay a regular subscription, and casual users, who do not pay a subscription fee. The purpose of this document is to compare the activity of members and casual users. 
+
+For the sake of this case study, I used Universal Standard Time. My first step was importing all data and compiling it into a dataframe. I transformed some of the data into a date/time format, and added a few columns to separate information out by day and month. 
+
+```{r}
+
+##Import CVs 
+
+require(data.table)
+library(tidyverse)
+library(ggplot2)
+library(usmap)
+require(maps)
+
+
+setwd('~/Downloads')
+
+files <- c('202004-divvy-tripdata.csv', '202005-divvy-tripdata.csv', '202006-divvy-tripdata.csv', '202007-divvy-tripdata.csv', '202008-divvy-tripdata.csv', '202009-divvy-tripdata.csv', '202010-divvy-tripdata.csv', '202012-divvy-tripdata.csv')
+
+dfs <- lapply(files, fread)
+df <- rbindlist(dfs)
+
+date_start_time <- as.Date(df$started_at,'%m/%d/%y %H:%M')
+
+started_at <- df$started_at
+ended_at <- df$ended_at
+
+date_time_start <- as.POSIXlt(started_at, tz = "", '%m/%d/%y %H:%M')
+date_time_end <- as.POSIXlt(ended_at, tz = "", '%m/%d/%y %H:%M')
+
+df$total_times <- date_time_end - date_time_start
+
+
+#make a new column for month
+df$month <- format(df$started_at, format="%m")
+
+
+#new column for day of week
+df$wkday <- format(df$started_at, format="%a")
+
+
+#new column for time of day
+df$timestart <- format(df$started_at, format="%H:%m")
+
+
+```
+
+I then compared number of members trips to casual users trips. 
+
+```{r}
+
+ggplot(df, aes(x=member_casual)) + 
+  geom_bar(fill = "forest green") +
+  guides(fill = guide_legend(title = "Members vs. Casual Users")) +
+  ylab("Number of Trips") + 
+  xlab("Members vs. Casual Users") 
+
+
+```
+
+The average trip time in 2020 is 25 minutes and 42 seconds. This average varies widely between members (11 m, 21 s average) and casual riders (44 m 40 s average). 
+
+```{r}
+
+#find average ride time
+
+
+average <- mean(df$total_times)
+averagehms <- seconds_to_period(average)
+averagehms
+
+#average ride time for members
+
+df_members <- df%>%
+  filter(member_casual == 'member')
+
+average_members <- mean(df_members$total_times)
+averagehms_members <- seconds_to_period(average_members)
+
+averagehms_members
+
+#average ride time for casual riders
+
+df_casual <- df%>%
+  filter(member_casual == 'casual')
+
+average_casual <- mean(df_casual$total_times)
+averagehms_casual <- seconds_to_period(average_casual)
+
+averagehms_casual
+
+
+```
+
+Among members and casual riders, more trips are taken on Saturday than any other day of the week. There is a more dramatic difference between Saturday trips and weekday trips for casual riders. 
+
+
+```{r}
+df_count <- df%>%
+  count(wkday, sort = TRUE)
+
+df_members_count <- df_members%>%
+  count(wkday, sort = TRUE)
+
+df_casual_count <- df_casual%>%
+  count(wkday, sort = TRUE)
+
+#members vs. casual riders by day of week
+
+df_count$weekday <- factor(df_count$wkday, levels = c("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"))
+
+
+  
+ggplot(df, aes(x=factor(wkday, levels = c("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")), fill = member_casual)) + 
+  geom_bar() +
+  guides(fill = guide_legend(title = "Users by Day")) +
+  scale_y_continuous(breaks=seq(0, 10000000, by = 150000)) + 
+  geom_text(stat='count', aes(label=after_stat(count)), size = 3, hjust = 0.5, vjust=--3, position = "stack") + 
+  ylab("Number of Trips") + 
+  xlab("Day of Week") 
+
+
+```
+
+For both groups, more trips occur in July, August, and September, with the highest number of trips in August for both groups. The number of member trips vs. casual rider trips is more dramatically different in December and April. 
+```{r}
+
+#members vs. casual riders by month
+
+
+df%>%
+  count(month, sort = TRUE)
+
+
+ggplot(df, aes(x=month, fill = member_casual)) +
+  geom_bar() + 
+  guides(fill = guide_legend(title = "Users by Month")) +
+  scale_y_continuous(breaks=seq(0, 10000000, by = 50000)) + 
+  geom_text(stat='count', aes(label=after_stat(count)), size = 3, hjust = 0.5, vjust=--1, position = "stack") 
+  
+```
+
+The most popular starting stations vary between members and casual riders, but have some overlap. I organized the starting stations on a map to look for any patterns. 
+
+```{r}
+
+states <- map_data("state")
+
+station_start_count_members <- df_members%>%
+  count(start_station_name, sort = TRUE)
+
+station_start_count_members
+
+station_start_count_casual <- df_casual%>%
+  count(start_station_name, sort = TRUE)
+
+station_start_count_casual
+
+g <- ggplot(states, aes(long, lat, group = group)) +
+  geom_polygon(fill = "white", colour = "black") + 
+  geom_point(data = df, mapping = aes(x = start_lng, y = start_lat, color = member_casual), inherit.aes = FALSE) 
+
+g <- g + coord_cartesian(xlim=c(-87.8, -87.54), ylim = c(41.7, 42.1)) 
+g
+```
+
+For both groups, round trips are the most common. 
+
+
+```{r}
+station_info <- df%>%
+  count(start_station_name, end_station_name, sort = TRUE)
+
+station_info
+
+station_info_members <- df_members%>%
+  count(start_station_name, end_station_name, sort = TRUE)
+
+station_info_members
+
+station_info_casual <- df_casual%>%
+  count(start_station_name, end_station_name, sort = TRUE)
+
+station_info_casual
+
+```
+
+Main Findings: 
+
+Overall, more member trips have been recorded. Member trips are more likely to be shorter (11 minute, 21 second average) compared to casual users (44 minute 40 second average). For both groups, more trips occur over the weekend, especially Saturday. There are less casual user trips on week days. 
+
+The highest number of trips for both groups occurs in August. Based on the data available, the number of casual user trips more significantly decreases in the winter, most notably December and March. However, data is missing for January, February, and November. I would recommend looking at previous years data to confirm this trend. 
+
+For both groups, round trips are most common. 
+
